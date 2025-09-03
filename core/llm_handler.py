@@ -2,16 +2,23 @@ import json
 import requests
 import streamlit as st
 from typing import Dict, List, Optional
-import ollama
-from transformers import pipeline
 
 class LLMHandler:
     def __init__(self):
+        # Use session state to persist the selection
+        if 'llm_type' not in st.session_state:
+            st.session_state.llm_type = "Mock (Demo)"
+
+        # Create the selectbox with session state
         self.llm_type = st.sidebar.selectbox(
             "Choose LLM Backend:",
-            ["Ollama (Local)", "Hugging Face (Online)", "Mock (Demo)"],
-            index=2  # Default to Mock for quick testing
+            ["Mock (Demo)", "Ollama (Local)", "Hugging Face (Online)"],
+            index=["Mock (Demo)", "Ollama (Local)", "Hugging Face (Online)"].index(st.session_state.llm_type),
+            key="llm_selector"
         )
+
+        # Update session state
+        st.session_state.llm_type = self.llm_type
 
         if self.llm_type == "Hugging Face (Online)":
             self.hf_token = st.sidebar.text_input(
@@ -26,24 +33,36 @@ class LLMHandler:
         """Setup the selected LLM backend"""
         if self.llm_type == "Ollama (Local)":
             try:
-                # Check if Ollama is running
-                ollama.list()
+                # Import ollama here to avoid issues if not installed
+                import ollama
+
+                # Check if Ollama is running by testing connection
+                models = ollama.list()
                 self.llm_ready = True
                 st.sidebar.success("✅ Ollama connected")
-            except:
+
+                # Show available models
+                if 'models' in models and models['models']:
+                    model_names = [model['name'] for model in models['models']]
+                    st.sidebar.info(f"Models available: {', '.join(model_names[:2])}")
+
+            except ImportError:
                 self.llm_ready = False
-                st.sidebar.error("❌ Ollama not found. Install from ollama.ai")
+                st.sidebar.error("❌ Ollama package not found. Run: pip install ollama")
+            except Exception as e:
+                self.llm_ready = False
+                st.sidebar.error("❌ Ollama not running. Run: ollama serve")
+                st.sidebar.code("ollama serve", language="bash")
 
         elif self.llm_type == "Hugging Face (Online)":
             try:
-                # Use a free code generation model
-                self.hf_pipeline = pipeline(
-                    "text-generation",
-                    model="microsoft/DialoGPT-medium",
-                    max_length=1000
-                )
+                # Simplified HF check
+                import transformers
                 self.llm_ready = True
                 st.sidebar.success("✅ Hugging Face ready")
+            except ImportError:
+                self.llm_ready = False
+                st.sidebar.error("❌ Transformers not installed")
             except Exception as e:
                 self.llm_ready = False
                 st.sidebar.error(f"❌ HF Error: {str(e)}")
@@ -61,14 +80,11 @@ class LLMHandler:
         # Create context from search results
         context = self._create_context(search_results)
 
-        # Generate prompt
-        prompt = self._create_prompt(query, category, context)
-
-        # Get response based on LLM type
+        # Generate response based on LLM type
         if self.llm_type == "Ollama (Local)":
-            return self._generate_ollama_response(prompt)
+            return self._generate_ollama_response(query, category, context)
         elif self.llm_type == "Hugging Face (Online)":
-            return self._generate_hf_response(prompt)
+            return self._generate_hf_response(query, category, context)
         else:  # Mock mode
             return self._generate_mock_response(query, category)
 
@@ -79,42 +95,31 @@ class LLMHandler:
             context_parts.append(f"- {result.get('title', '')}: {result.get('snippet', '')}")
         return "\n".join(context_parts)
 
-    def _create_prompt(self, query: str, category: str, context: str) -> str:
-        """Create the main prompt for the LLM"""
-        return f"""
-You are CodeXR, an expert AR/VR coding assistant. Generate a structured JSON response for this developer query.
+    def _generate_ollama_response(self, query: str, category: str, context: str) -> Optional[Dict]:
+        """Generate response using Ollama"""
+        try:
+            import ollama
+
+            # Create a simple prompt for code generation
+            prompt = f"""You are a helpful AR/VR coding assistant. Generate a JSON response for this query:
 
 Query: {query}
 Category: {category}
-Context from documentation:
-{context}
+Context: {context}
 
-Generate a JSON response with this exact structure:
+Respond with valid JSON in this format:
 {{
-    "subtasks": [
-        "Step 1: Clear action item",
-        "Step 2: Another action item",
-        "Step 3: Final step"
-    ],
-    "code_snippet": "// Ready-to-paste code\\nusing UnityEngine;\\n// ... complete code here",
-    "best_practices": [
-        "Important tip 1",
-        "Common pitfall to avoid"
-    ],
+    "subtasks": ["Step 1: ...", "Step 2: ...", "Step 3: ..."],
+    "code_snippet": "// Complete working code here",
+    "best_practices": ["Tip 1", "Tip 2"],
     "difficulty": "Easy|Medium|Hard",
-    "documentation_links": [
-        "https://docs.unity3d.com/...",
-        "https://docs.unrealengine.com/..."
-    ],
+    "documentation_links": ["https://docs.unity3d.com/..."],
     "estimated_time": "30 minutes"
 }}
 
-Focus on {category} development. Provide complete, working code snippets.
-"""
+Focus on {category} development. Provide complete, working code."""
 
-    def _generate_ollama_response(self, prompt: str) -> Optional[Dict]:
-        """Generate response using Ollama"""
-        try:
+            # Generate response
             response = ollama.generate(
                 model='codellama:7b-code',
                 prompt=prompt,
@@ -127,22 +132,14 @@ Focus on {category} development. Provide complete, working code snippets.
 
         except Exception as e:
             st.error(f"Ollama error: {str(e)}")
-            return None
+            # Fall back to mock response
+            return self._generate_mock_response(query, category)
 
-    def _generate_hf_response(self, prompt: str) -> Optional[Dict]:
+    def _generate_hf_response(self, query: str, category: str, context: str) -> Optional[Dict]:
         """Generate response using Hugging Face"""
-        try:
-            # For demo purposes, we'll use a simpler approach
-            # In production, you'd want to use a proper code generation model
-            response = self.hf_pipeline(prompt, max_length=500, num_return_sequences=1)
-            response_text = response[0]['generated_text']
-
-            # For HF free tier, we might need to parse differently
-            return self._extract_json(response_text)
-
-        except Exception as e:
-            st.error(f"Hugging Face error: {str(e)}")
-            return None
+        # For now, fall back to mock - HF free tier is limited for code generation
+        st.warning("Hugging Face code generation not fully implemented. Using mock response.")
+        return self._generate_mock_response(query, category)
 
     def _generate_mock_response(self, query: str, category: str) -> Dict:
         """Generate mock response for demo purposes"""
@@ -319,22 +316,41 @@ Shader "Custom/AROcclusion"
     def _get_generic_response(self, query: str, category: str) -> Dict:
         return {
             "subtasks": [
-                f"Analyze the {category} development requirements",
+                f"Analyze the {category} development requirements for: {query}",
                 "Research relevant documentation and examples",
-                "Implement the core functionality",
-                "Test and debug the implementation",
-                "Optimize for your target platform"
+                "Implement the core functionality step by step",
+                "Test and debug the implementation thoroughly",
+                "Optimize for your target platform and use case"
             ],
-            "code_snippet": f"// {category} implementation for: {query}\n// This is a generic template\n// Please provide more specific details for a complete solution",
+            "code_snippet": f"""// {category} implementation for: {query}
+// This is a generic template - provide more specific details for a complete solution
+
+using UnityEngine;  // or appropriate includes for your platform
+
+public class GeneratedSolution : MonoBehaviour
+{{
+    void Start()
+    {{
+        // Initialize your {category.lower()} implementation here
+        Debug.Log("Implementing: {query}");
+    }}
+
+    void Update()
+    {{
+        // Add your main logic here
+    }}
+}}""",
             "best_practices": [
-                "Follow platform-specific development guidelines",
-                "Test on your target devices regularly",
-                "Keep performance optimization in mind from the start"
+                f"Follow {category}-specific development guidelines and conventions",
+                "Test on your target devices regularly during development",
+                "Keep performance optimization in mind from the start",
+                "Document your code for future reference and team collaboration"
             ],
             "difficulty": "Medium",
             "documentation_links": [
-                f"https://docs.unity3d.com/Manual/",
-                f"https://docs.unrealengine.com/"
+                "https://docs.unity3d.com/Manual/",
+                "https://docs.unrealengine.com/",
+                "https://developer.oculus.com/documentation/"
             ],
             "estimated_time": "1-2 hours"
         }
@@ -350,6 +366,10 @@ Shader "Custom/AROcclusion"
                 json_str = text[start_idx:end_idx]
                 return json.loads(json_str)
             else:
+                # If no JSON found, return None and fall back to mock
                 return None
-        except:
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return None and fall back to mock
+            return None
+        except Exception:
             return None
