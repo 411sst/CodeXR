@@ -148,17 +148,21 @@ def create_llm_sidebar():
 
         return selected_llm, llm_ready
 
+# Replace the check_ollama_status() function in your app.py with this:
+
 def check_ollama_status():
     """Check Ollama connection and show status"""
     try:
         import ollama
-        models = ollama.list()
+
+        # Test actual connection to Ollama server
+        response = ollama.list()
 
         st.success("✅ **Ollama Connected**")
 
-        if 'models' in models and models['models']:
-            model_names = [model['name'] for model in models['models']]
-            st.info(f"📦 **Models:** {', '.join(model_names[:2])}")
+        if 'models' in response and response['models']:
+            model_names = [model['name'] for model in response['models']]
+            st.info(f"📦 **Models:** {', '.join(model_names[:3])}")
 
             # Show which model will be used
             if any('codellama' in name for name in model_names):
@@ -167,21 +171,25 @@ def check_ollama_status():
                 st.warning("⚠️ codellama:7b-code not found")
                 st.code("ollama pull codellama:7b-code", language="bash")
         else:
-            st.warning("⚠️ No models found")
+            st.warning("⚠️ No models installed")
             st.code("ollama pull codellama:7b-code", language="bash")
 
         st.caption("• Real AI responses\n• 10-30 second generation time\n• Runs locally on your PC")
         return True
 
     except ImportError:
-        st.error("❌ **Ollama not installed**")
+        st.error("❌ **Ollama package not installed**")
         st.code("pip install ollama", language="bash")
         return False
 
     except Exception as e:
-        st.error("❌ **Ollama not running**")
-        st.code("ollama serve", language="bash")
-        st.caption(f"Error: {str(e)[:50]}...")
+        # Check if it's a connection error specifically
+        if "connection" in str(e).lower() or "refused" in str(e).lower():
+            st.error("❌ **Ollama server not running**")
+            st.code("ollama serve", language="bash")
+        else:
+            st.error("❌ **Ollama error**")
+            st.caption(f"Error: {str(e)[:50]}...")
         return False
 
 def check_huggingface_status():
