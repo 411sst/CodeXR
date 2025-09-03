@@ -32,13 +32,30 @@ st.markdown("""
     }
     .subtask {
         background-color: #f0f2f6;
-        padding: 0.5rem;
+        padding: 0.8rem;
         border-left: 4px solid #667eea;
         margin: 0.5rem 0;
+        border-radius: 4px;
+        color: #1f2937 !important;  /* Force dark text */
     }
-    .difficulty-easy { color: #28a745; }
-    .difficulty-medium { color: #ffc107; }
-    .difficulty-hard { color: #dc3545; }
+    .difficulty-easy { color: #28a745 !important; }
+    .difficulty-medium { color: #ffc107 !important; }
+    .difficulty-hard { color: #dc3545 !important; }
+
+    /* Fix white text issues */
+    .stMarkdown p {
+        color: #1f2937 !important;
+    }
+
+    /* Ensure step text is visible */
+    .subtask strong {
+        color: #1f2937 !important;
+    }
+
+    /* Fix any remaining white text */
+    div[data-testid="stMarkdownContainer"] p {
+        color: #1f2937 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
